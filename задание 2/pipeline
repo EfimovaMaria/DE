@@ -1,0 +1,86 @@
+pipeline {
+    agent any
+
+    environment {
+        DB_HOST = 'localhost'
+        DB_PORT = '5432'
+        DB_USER = 'user'
+        DB_PASSWORD = '1234'
+        DB_NAME = 'database'
+        OUTPUT_CSV = 'aggregated_logs.csv'
+    }
+
+    stages {
+        stage('Extract') {
+            steps {
+                script {
+                    //получение периода от пользователя
+                    def period = input(message: 'Введите период в формате YYYY-MM-DD:YYYY-MM-DD', parameters: [string(name: 'period', defaultValue: '2023-01-01:2023-01-31')])
+                    def (start_str, end_str) = period.split(":")
+                    def start_date = start_str.trim()
+                    def end_date = end_str.trim()
+
+                    //извлечение данных из PostgreSQL
+                    def query = """
+                    SELECT l.current_period, l.user_id, l.action, l.action_id, 
+                           m.content, t.title
+                    FROM logs l
+                    LEFT JOIN messages m ON l.action_id = m.message_id
+                    LEFT JOIN topics t ON l.action_id = t.topic_id
+                    WHERE l.current_period::date BETWEEN '${start_date}' AND '${end_date}';
+                    """
+                    
+                    //сохранение данных в CSV
+                    def command = """
+                        PGPASSWORD=${DB_PASSWORD} psql -h ${DB_HOST} -U ${DB_USER} -d ${DB_NAME} -c "${query}" -o temp_data.csv
+                    """
+                    sh command
+                }
+            }
+        }
+
+        stage('Transform') {
+            steps {
+                script {
+                    //преобразование данных
+                    def data = readFile('temp_data.csv').split('\n')
+                    def headers = data[0].split(',')
+                    def rows = data[1..-1].collect { it.split(',') }
+
+                    //преобразование в df
+                    def df = new groovy.json.JsonSlurper().parseText(rows.collect { [headers, it] }.collectEntries())
+
+                    //логика преобразования
+                    df.each { row ->
+                        row.date = row.current_period.split(' ')[0] //извлечение даты
+                    }
+
+                    //пример агрегации
+                    def registrations = df.findAll { it.action == 'регистрация' }.groupBy { it.date }.collectEntries { [(it.key): it.size()] }
+                    def total_messages = df.groupBy { it.date }.collectEntries { [(it.key): it.size()] }
+
+                    //сохранение результата в csv
+                    def result = new StringBuilder()
+                    result.append("date,new_accounts,total_messages\n")
+                    registrations.each { date, new_accounts ->
+                        result.append("${date},${new_accounts},${total_messages[date] ?: 0}\n")
+                    }
+                    writeFile file: OUTPUT_CSV, text: result.toString()
+                }
+            }
+        }
+
+        stage('Load') {
+            steps {
+                script {
+                    //загрузка данных в целевую систему 
+                    echo "Данные успешно загружены в ${OUTPUT_CSV}"
+                }
+            }
+        }
+    }
+
+    triggers {
+        cron('H 0 * * *') //запуск каждый день в полночь
+    }
+}

@@ -54,7 +54,7 @@ def generate_messages(topics, num_messages):
     for _ in range(num_messages):
         topic_id = random.choice(topics)['topic_id']
         user_id = random.choice(
-            [fake.uuid4(), None])  # случайный выбор между залогиненным и незалогиненным пользователем
+            [fake.uuid4(), None])  #случайный выбор между залогиненным и незалогиненным пользователем
         message_entry = {
             'message_id': fake.uuid4(),
             'content': fake.text(),
@@ -127,7 +127,7 @@ def generate_logs(users, topics, start_date, num_days):
                     'log_id': len(logs) + 1,
                     'user_id': user_id,
                     'action': action,
-                    'action_id': fake.uuid4(),  #генерируем уникальный ID действия (например ID темы/комментария)
+                    'action_id': fake.uuid4(),  #генерируем уникальный ID действия
                     'server_response': server_response,
                     'current_period': current_date + timedelta(hours=random.randint(0, 23),
                                                                minutes=random.randint(0, 59))
